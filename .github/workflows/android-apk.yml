@@ -53,7 +53,18 @@ jobs:
           echo "$GITHUB_WORKSPACE/.buildozer-venv/bin" >> "$GITHUB_PATH"
 
       - name: Build debug APK
-        run: buildozer android debug
+        run: |
+          set -o pipefail
+          buildozer -v android debug 2>&1 | tee buildozer.log
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cafe-pos-build-log
+          path: buildozer.log
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
