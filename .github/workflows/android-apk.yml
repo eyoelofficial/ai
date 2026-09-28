@@ -53,10 +53,7 @@ jobs:
           echo "$GITHUB_WORKSPACE/.buildozer-venv/bin" >> "$GITHUB_PATH"
 
       - name: Build debug APK
-        shell: bash
-        run: |
-          set +o pipefail
-          yes | buildozer android debug
+        run: buildozer android debug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
