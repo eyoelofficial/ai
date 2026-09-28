@@ -36,7 +36,8 @@ python -m unittest discover -s tests -v
 ### Build with GitHub Actions (no local Android tools required)
 
 The included `.github/workflows/android-apk.yml` builds a debug APK on a hosted
-Linux runner. To use it:
+Linux runner using a pinned python-for-android release and NDK for reproducible
+Android dependencies. To use it:
 
 1. Create a repository in your own GitHub account and add this project.
 2. Push the project to the repository's `main` or `master` branch, or open the
