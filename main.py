@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from datetime import date
+import csv
+import io
+import math
+from datetime import date, datetime
 from pathlib import Path
 import sqlite3
 
 from kivy.app import App
+from kivy.graphics import Color, RoundedRectangle
 from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
@@ -14,6 +18,7 @@ from kivy.uix.screenmanager import Screen, ScreenManager
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.spinner import Spinner
 from kivy.uix.textinput import TextInput
+from kivy.utils import platform
 
 from cafe_pos.database import CafeDatabase
 
@@ -375,6 +380,14 @@ class InventoryScreen(CafeScreen):
         actions.add_widget(Button(text="Add ingredient", on_release=lambda _button: self.add_ingredient()))
         actions.add_widget(Button(text="Adjust stock", on_release=lambda _button: self.adjust_stock()))
         body.add_widget(actions)
+        body.add_widget(
+            Button(
+                text="Inventory calculator",
+                size_hint_y=None,
+                height=dp(48),
+                on_release=lambda _button: self.inventory_calculator(),
+            )
+        )
         entries = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(4))
         entries.bind(minimum_height=entries.setter("height"))
         for ingredient in self.app.db.list_ingredients():
@@ -388,6 +401,315 @@ class InventoryScreen(CafeScreen):
                 )
             )
         body.add_widget(self.scroll(entries))
+
+    @staticmethod
+    def _read_quantity(text: str, label: str, blank_is_zero: bool = False):
+        if not text.strip():
+            if blank_is_zero:
+                return 0.0
+            return None
+        try:
+            quantity = float(text)
+        except ValueError as error:
+            raise ValueError(f"Enter a valid {label}.") from error
+        if not math.isfinite(quantity) or quantity < 0:
+            raise ValueError(f"{label.capitalize()} must be a finite, non-negative number.")
+        return quantity
+
+    def _calculator_values(self, row):
+        name = row["ingredient"]["name"]
+        added = self._read_quantity(
+            row["added"].text, f"new added quantity for {name}", blank_is_zero=True
+        )
+        sold = self._read_quantity(
+            row["sold"].text, f"sold quantity for {name}", blank_is_zero=True
+        )
+        physical = self._read_quantity(
+            row["physical"].text, f"physical count for {name}"
+        )
+        total = row["ingredient"]["stock"] + added
+        new_available = total - sold
+        if not math.isfinite(total) or not math.isfinite(new_available):
+            raise ValueError(f"Stock calculation is too large for {name}.")
+        if new_available < -1e-9:
+            raise ValueError(f"Sold quantity cannot exceed total stock for {name}.")
+        new_available = max(0.0, new_available)
+        difference = new_available - physical if physical is not None else None
+        return {
+            "added": added,
+            "sold": sold,
+            "total": total,
+            "new_available": new_available,
+            "physical": physical,
+            "difference": difference,
+        }
+
+    def inventory_calculator(self):
+        ingredients = self.app.db.list_ingredients()
+        if not ingredients:
+            self.message("Add an ingredient first.")
+            return
+
+        content = BoxLayout(orientation="vertical", spacing=dp(8), padding=dp(10))
+        instructions = Label(
+            text="Enter additions and sales. New available becomes tomorrow's stock; "
+            "physical count is only used to show the difference.",
+            size_hint_y=None,
+            height=dp(54),
+            halign="left",
+            valign="middle",
+        )
+        instructions.bind(
+            width=lambda widget, width: setattr(widget, "text_size", (width, None))
+        )
+        content.add_widget(instructions)
+        rows = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(4))
+        rows.bind(minimum_height=rows.setter("height"))
+        calculator_rows = []
+
+        for ingredient in ingredients:
+            card = BoxLayout(
+                orientation="vertical",
+                size_hint_y=None,
+                height=dp(206),
+                padding=dp(8),
+                spacing=dp(4),
+            )
+
+            def card_label(text, height, markup=False):
+                label = Label(
+                    text=text,
+                    markup=markup,
+                    size_hint_y=None,
+                    height=dp(height),
+                    halign="left",
+                    valign="middle",
+                )
+                label.bind(
+                    width=lambda widget, width: setattr(
+                        widget, "text_size", (width, None)
+                    )
+                )
+                return label
+
+            with card.canvas.before:
+                Color(0.91, 0.94, 0.96, 1)
+                card.background = RoundedRectangle(
+                    pos=card.pos, size=card.size, radius=[dp(8)]
+                )
+            card.bind(
+                pos=lambda widget, _value: setattr(
+                    widget.background, "pos", widget.pos
+                ),
+                size=lambda widget, _value: setattr(
+                    widget.background, "size", widget.size
+                ),
+            )
+            card.add_widget(
+                card_label(
+                    f"[b]{ingredient['name']}[/b]  ({ingredient['unit']})",
+                    30,
+                    markup=True,
+                )
+            )
+            card.add_widget(
+                card_label(
+                    f"Available now: {ingredient['stock']:g} {ingredient['unit']}",
+                    26,
+                )
+            )
+
+            inputs = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(6))
+            added = TextInput(
+                text="0",
+                hint_text="New added",
+                multiline=False,
+                input_filter="float",
+                size_hint_x=0.5,
+            )
+            sold = TextInput(
+                text="0",
+                hint_text="Sold",
+                multiline=False,
+                input_filter="float",
+                size_hint_x=0.5,
+            )
+            inputs.add_widget(added)
+            inputs.add_widget(sold)
+            card.add_widget(inputs)
+
+            totals = BoxLayout(size_hint_y=None, height=dp(28), spacing=dp(6))
+            total_label = card_label("Total: 0", 28)
+            new_available_label = card_label("New available: 0", 28)
+            totals.add_widget(total_label)
+            totals.add_widget(new_available_label)
+            card.add_widget(totals)
+
+            count_row = BoxLayout(size_hint_y=None, height=dp(42), spacing=dp(6))
+            physical = TextInput(
+                hint_text="Physical count",
+                multiline=False,
+                input_filter="float",
+                size_hint_x=0.5,
+            )
+            difference_label = card_label("Difference: --", 42)
+            count_row.add_widget(physical)
+            count_row.add_widget(difference_label)
+            card.add_widget(count_row)
+            rows.add_widget(card)
+
+            calculator_row = {
+                "ingredient": ingredient,
+                "added": added,
+                "sold": sold,
+                "physical": physical,
+                "total_label": total_label,
+                "new_available_label": new_available_label,
+                "difference_label": difference_label,
+            }
+            calculator_rows.append(calculator_row)
+
+            def update_values(*_args, current_row=calculator_row):
+                try:
+                    values = self._calculator_values(current_row)
+                except ValueError:
+                    current_row["total_label"].text = "Total: --"
+                    current_row["new_available_label"].text = "New available: --"
+                    current_row["difference_label"].text = "Difference: --"
+                    return
+                current_row["total_label"].text = f"Total: {values['total']:g}"
+                current_row["new_available_label"].text = (
+                    f"New available: {values['new_available']:g}"
+                )
+                difference = values["difference"]
+                current_row["difference_label"].text = (
+                    f"Difference: {difference:g}" if difference is not None
+                    else "Difference: --"
+                )
+
+            added.bind(text=update_values)
+            sold.bind(text=update_values)
+            physical.bind(text=update_values)
+            update_values()
+
+        content.add_widget(self.scroll(rows))
+        actions = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(6))
+        popup = Popup(
+            title="Inventory calculator",
+            content=content,
+            size_hint=(0.96, 0.9),
+        )
+        actions.add_widget(
+            Button(
+                text="Export CSV",
+                on_release=lambda _button: self.export_inventory_csv(calculator_rows),
+            )
+        )
+        actions.add_widget(
+            Button(
+                text="Save for tomorrow",
+                on_release=lambda _button: self.save_calculated_stock(
+                    calculator_rows, popup
+                ),
+            )
+        )
+        content.add_widget(actions)
+        content.add_widget(
+            Button(
+                text="Close",
+                size_hint_y=None,
+                height=dp(44),
+                on_release=lambda _button: popup.dismiss(),
+            )
+        )
+        popup.open()
+
+    def save_calculated_stock(self, rows, popup):
+        try:
+            stock_levels = [
+                (
+                    row["ingredient"]["id"],
+                    self._calculator_values(row)["new_available"],
+                )
+                for row in rows
+            ]
+            self.app.db.set_stock_levels(stock_levels)
+        except ValueError as error:
+            self.message(str(error), "Stock not saved")
+            return
+        popup.dismiss()
+        self.refresh()
+        self.message("New available quantities were saved as the next day's stock.")
+
+    def export_inventory_csv(self, rows):
+        try:
+            values = [
+                (row, self._calculator_values(row))
+                for row in rows
+            ]
+        except ValueError as error:
+            self.message(str(error), "CSV not exported")
+            return
+
+        output = io.StringIO(newline="")
+        writer = csv.writer(output)
+        writer.writerow(
+            (
+                "Date",
+                "Ingredient",
+                "Unit",
+                "Available now",
+                "New added",
+                "Total stock",
+                "Sold stock",
+                "New available",
+                "Physical count",
+                "Difference",
+            )
+        )
+        for row, calculated in values:
+            ingredient = row["ingredient"]
+            writer.writerow(
+                (
+                    date.today().isoformat(),
+                    ingredient["name"],
+                    ingredient["unit"],
+                    f"{ingredient['stock']:g}",
+                    f"{calculated['added']:g}",
+                    f"{calculated['total']:g}",
+                    f"{calculated['sold']:g}",
+                    f"{calculated['new_available']:g}",
+                    "" if calculated["physical"] is None else f"{calculated['physical']:g}",
+                    "" if calculated["difference"] is None else f"{calculated['difference']:g}",
+                )
+            )
+        csv_text = output.getvalue()
+        export_dir = Path(self.app.user_data_dir) / "exports"
+        timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+        filename = f"inventory-count-{timestamp}.csv"
+        csv_path = export_dir / filename
+        try:
+            export_dir.mkdir(parents=True, exist_ok=True)
+            csv_path.write_text(csv_text, encoding="utf-8-sig", newline="")
+        except OSError as error:
+            self.message(f"Could not save CSV: {error}", "Export failed")
+            return
+
+        if platform == "android":
+            from jnius import autoclass
+
+            intent_class = autoclass("android.content.Intent")
+            activity_class = autoclass("org.kivy.android.PythonActivity")
+            intent = intent_class(intent_class.ACTION_SEND)
+            intent.setType("text/csv")
+            intent.putExtra("android.intent.extra.SUBJECT", "Cafe POS inventory count")
+            intent.putExtra("android.intent.extra.TEXT", csv_text)
+            activity = activity_class.mActivity
+            chooser = intent_class.createChooser(intent, "Share inventory CSV")
+            activity.startActivity(chooser)
+            return
+
+        self.message(f"CSV saved to:\n{csv_path}", "CSV exported")
 
     def add_ingredient(self):
         def save(fields):

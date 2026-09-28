@@ -57,6 +57,42 @@ class CafeDatabaseTests(unittest.TestCase):
             10,
         )
 
+    def test_set_stock_levels_updates_multiple_ingredients_and_records_movements(self):
+        self.db.set_stock_levels([(self.beans, 900), (self.cup, 8)])
+
+        stock = {row["id"]: row["stock"] for row in self.db.list_ingredients()}
+        self.assertEqual(stock[self.beans], 900)
+        self.assertEqual(stock[self.cup], 8)
+        movements = list(
+            self.db.connection.execute(
+                """SELECT ingredient_id, quantity_change, reason
+                   FROM inventory_movements
+                   WHERE ingredient_id IN (?, ?) ORDER BY id DESC LIMIT 2""",
+                (self.beans, self.cup),
+            )
+        )
+        self.assertEqual(
+            {(row["ingredient_id"], row["quantity_change"], row["reason"]) for row in movements},
+            {(self.beans, -100, "Adjustment"), (self.cup, -2, "Adjustment")},
+        )
+
+    def test_set_stock_levels_rolls_back_if_any_ingredient_is_invalid(self):
+        with self.assertRaisesRegex(ValueError, "Ingredient not found"):
+            self.db.set_stock_levels([(self.beans, 500), (999, 1)])
+
+        stock = {row["id"]: row["stock"] for row in self.db.list_ingredients()}
+        self.assertEqual(stock[self.beans], 1000)
+        self.assertEqual(stock[self.cup], 10)
+
+    def test_set_stock_levels_rejects_negative_stock(self):
+        with self.assertRaisesRegex(ValueError, "cannot be negative"):
+            self.db.set_stock_levels([(self.beans, -1)])
+
+        self.assertEqual(
+            next(row["stock"] for row in self.db.list_ingredients() if row["id"] == self.beans),
+            1000,
+        )
+
     def test_money_uses_cents_without_float_rounding(self):
         self.assertEqual(CafeDatabase.money_to_cents("12.35"), 1235)
 

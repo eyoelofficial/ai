@@ -8,6 +8,11 @@ on:
       - master
     paths-ignore:
       - .github/workflows/android-apk.yml
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -83,3 +88,20 @@ jobs:
           path: bin/*.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Prepare release APK
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          apk="$(find bin -maxdepth 1 -name '*.apk' -print -quit)"
+          test -n "$apk"
+          cp "$apk" "cafe-pos-${GITHUB_REF_NAME}-debug.apk"
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "cafe-pos-${GITHUB_REF_NAME}-debug.apk#Cafe POS Android debug APK" \
+            --title "Cafe POS $GITHUB_REF_NAME" \
+            --notes "Install the attached debug APK in an Android emulator or device. This is a testing build, not a Play Store release."

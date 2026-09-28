@@ -12,6 +12,8 @@ prices are shown in ETB.
 - Transactional checkout: a sale is rejected if its recipe is missing or
   ingredient stock is insufficient
 - Restock, waste, and stock adjustment records
+- Inventory calculator with next-day stock saving, physical-count variance,
+  and CSV export
 - Low-stock indicators and a current-day sales summary
 
 ## Run on a computer
@@ -49,6 +51,11 @@ has to create it. To use it:
 4. Extract the APK and install it in your Android emulator. A debug APK is for
    testing; it is not a Play Store release.
 
+To publish an APK on the repository's **Releases** page, push a version tag
+such as `v0.2.0`. The same Android build workflow will build the APK and attach
+it to a GitHub Release with that tag. The release is published automatically
+after the build succeeds.
+
 The source is built in your GitHub repository. Check your account's current
 Actions usage limits before relying on hosted build minutes.
 
@@ -70,6 +77,11 @@ should be done on the target device before using the app for live sales.
 2. Add menu items and their ETB prices.
 3. Add one or more recipe ingredients per menu item.
 4. Open POS, add menu items, and record the payment method at checkout.
+5. In Stock, use **Inventory calculator** to enter additions and sold stock.
+   **Save for tomorrow** stores the calculated new available quantities as the
+   next day's stock; physical counts are used only to display the variance.
+   **Export CSV** saves a dated CSV in the app's private data folder and opens
+   Android's share sheet so the results can be shared or saved elsewhere.
 
 ## Data notes
 

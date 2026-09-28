@@ -4,7 +4,7 @@ package.name = cafepos
 package.domain = org.cafepos
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,sqlite3,md
-version = 0.1.0
+version = 0.2.0
 requirements = python3,kivy,requests==2.25.1
 orientation = portrait
 fullscreen = 0

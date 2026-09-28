@@ -185,6 +185,37 @@ class CafeDatabase:
                 (ingredient_id, quantity_change, reason, self._now()),
             )
 
+    def set_stock_levels(self, stock_levels: Iterable[tuple[int, float]]) -> None:
+        """Set multiple on-hand quantities atomically and record their adjustments."""
+        normalized: dict[int, float] = {}
+        for ingredient_id, stock in stock_levels:
+            if ingredient_id in normalized:
+                raise ValueError("Each ingredient can only be included once.")
+            normalized[ingredient_id] = self._nonnegative_number(stock, "stock level")
+        if not normalized:
+            raise ValueError("Provide at least one ingredient stock level.")
+
+        with self.connection:
+            now = self._now()
+            for ingredient_id, stock in normalized.items():
+                row = self.connection.execute(
+                    "SELECT stock FROM ingredients WHERE id = ?", (ingredient_id,)
+                ).fetchone()
+                if row is None:
+                    raise ValueError("Ingredient not found.")
+                change = stock - row["stock"]
+                self.connection.execute(
+                    "UPDATE ingredients SET stock = ? WHERE id = ?",
+                    (stock, ingredient_id),
+                )
+                if change != 0:
+                    self.connection.execute(
+                        """INSERT INTO inventory_movements
+                           (ingredient_id, quantity_change, reason, created_at)
+                           VALUES (?, ?, 'Adjustment', ?)""",
+                        (ingredient_id, change, now),
+                    )
+
     def record_sale(self, items: Iterable[tuple[int, int]], payment_method: str) -> int:
         if payment_method not in {"Cash", "Card", "Other"}:
             raise ValueError("Choose Cash, Card, or Other as the payment method.")
