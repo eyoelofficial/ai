@@ -47,10 +47,9 @@ jobs:
 
       - name: Install Buildozer
         run: |
-          python -m venv .buildozer-venv
-          .buildozer-venv/bin/python -m pip install --upgrade pip
-          .buildozer-venv/bin/python -m pip install "Cython==0.29.33" buildozer
-          echo "$GITHUB_WORKSPACE/.buildozer-venv/bin" >> "$GITHUB_PATH"
+          python -m pip install --user --upgrade pip
+          python -m pip install --user "Cython==0.29.33" buildozer
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Build debug APK
         run: |
