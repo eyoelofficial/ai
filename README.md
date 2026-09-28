@@ -37,7 +37,9 @@ python -m unittest discover -s tests -v
 
 The included `.github/workflows/android-apk.yml` builds a debug APK on a hosted
 Linux runner using a pinned python-for-android release and NDK for reproducible
-Android dependencies. To use it:
+Android dependencies. It also caches the Android toolchain and compiled
+dependencies for later builds; the first build after enabling the cache still
+has to create it. To use it:
 
 1. Create a repository in your own GitHub account and add this project.
 2. Push the project to the repository's `main` or `master` branch, or open the
